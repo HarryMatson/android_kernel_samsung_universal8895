@@ -75,20 +75,32 @@ config SW_SYNC_USER
 	  *WARNING* improper use of this can result in deadlocking kernel
 	  drivers from userspace.
 
-config ANDROID_INTF_ALARM_DEV
-	tristate "Android alarm driver"
-	depends on RTC_CLASS
-	default n
-	---help---
-	  Provides non-wakeup and rtc backed wakeup alarms based on rtc or
-	  elapsed realtime, and a non-wakeup alarm on the monotonic clock.
-	  Also exports the alarm interface to user-space.
-
-config SAMSUNG_FREECESS
-	bool "thraw frozen process when recv sig"
+config HUAWEI_RCC
+	tristate "RAM Compress and Clean"
+	depends on SYSFS && SWAP
 	default n
 	help
-	  thraw frozen process when recv sig.
+	  Creates background thread for compress and clean used RAM
+	  dynamiclly.
+
+config HUAWEI_RCC_DEBUG
+	bool "RAM Compress and Clean debug support"
+	depends on HISI_RCC
+	default n
+	help
+	  This option adds additional debugging code to the
+	  RAM Compress and Clean module.
+
+config HISI_SMART_RECLAIM
+	bool "Enable smart reclaim"
+	default y
+	depends on PROCESS_RECLAIM
+	help
+	  When enabled, memory pages of background processes will be reclaimed.
+	  Depending on if the process is an application or service.
+	  In case of service, advise kernel to reclaim file backed pages
+	  of background processes(file tpyes .dex, .jar and/or .apk).
+	  This triggered by writting soft to /proc/<pid>/reclaim from user space.
 
 source "drivers/staging/android/ion/Kconfig"
 
