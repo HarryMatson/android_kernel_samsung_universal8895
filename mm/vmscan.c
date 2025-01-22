@@ -1277,62 +1277,52 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 	return ret;
 }
 
-#ifdef CONFIG_PROCESS_RECLAIM
-#ifdef CONFIG_HUAWEI_SWAP_ZDATA
-unsigned long reclaim_pages_from_list(struct list_head *page_list,
-					struct vm_area_struct *vma,
-					bool hiber, unsigned *nr_writedblock)
-#else
-unsigned long reclaim_pages_from_list(struct list_head *page_list,
-					struct vm_area_struct *vma)
-#endif
+/* A caller should guarantee that start and end pfns are in the same zone */
+void reclaim_contig_migrate_range(unsigned long start,
+						unsigned long end, bool drain)
 {
-	struct scan_control sc = {
-		.gfp_mask = GFP_KERNEL,
-		.priority = DEF_PRIORITY,
-		.may_writepage = 1,
-		.may_unmap = 1,
-		.may_swap = 1,
-		.target_vma = vma,
-#ifdef CONFIG_HUAWEI_SWAP_ZDATA
-		.nr_writedblock = 0,
-#endif
-	};
-
+	/* This function is based on __alloc_contig_migrate_range */
 	unsigned long nr_reclaimed;
-	struct page *page;
-	unsigned long dummy1, dummy2, dummy3, dummy4, dummy5;
+	unsigned long pfn = start;
+	struct compact_control cc = {
+		.mode = MIGRATE_SYNC_LIGHT,
+	};
+	unsigned long total_reclaimed = 0;
 
-#ifdef CONFIG_HUAWEI_SWAP_ZDATA
-	if (hiber)
-		sc.ishibernation_rec = true;
-	else
-		sc.ishibernation_rec = false;
-#endif
+	cc.nr_freepages = 0;
+	cc.nr_migratepages = 0;
+	cc.zone = page_zone(pfn_to_page(start));
+	INIT_LIST_HEAD(&cc.freepages);
+	INIT_LIST_HEAD(&cc.migratepages);
 
-	list_for_each_entry(page, page_list, lru)
-		ClearPageActive(page);
+	if (drain)
+		migrate_prep();
 
-	nr_reclaimed = shrink_page_list(page_list, NULL, &sc,
-			TTU_UNMAP|TTU_IGNORE_ACCESS,
-			&dummy1, &dummy2, &dummy3, &dummy4, &dummy5, true);
+	while (pfn < end) {
+		if (fatal_signal_pending(current)) {
+			pr_warn_once("%s %d got fatal signal\n",
+						__func__, __LINE__);
+			break;
+		}
 
-	while (!list_empty(page_list)) {
-		page = lru_to_page(page_list);
-		list_del(&page->lru);
-		dec_zone_page_state(page, NR_ISOLATED_ANON +
-				page_is_file_cache(page));
-		putback_lru_page(page);
+		if (list_empty(&cc.migratepages)) {
+			cc.nr_migratepages = 0;
+			pfn = isolate_migratepages_range(&cc, pfn, end);
+			if (!pfn)
+				break;
+		}
+
+		nr_reclaimed = reclaim_clean_pages_from_list(cc.zone,
+							&cc.migratepages);
+		cc.nr_migratepages -= nr_reclaimed;
+		total_reclaimed += nr_reclaimed;
+
+		/* Skip pages not reclaimed in the above */
+		if (cc.nr_migratepages)
+			putback_movable_pages(&cc.migratepages);
 	}
-
-#ifdef CONFIG_HUAWEI_SWAP_ZDATA
-	if (hiber)
-		*nr_writedblock += sc.nr_writedblock;
-#endif
-
-	return nr_reclaimed;
+	trace_printk("%lu\n", total_reclaimed << PAGE_SHIFT);
 }
-#endif
 
 /*
  * Attempt to remove the specified page from its LRU.  Only take this page
